@@ -11,7 +11,7 @@ class AuthorViewSet(viewsets.ModelViewSet):
     serializer_class = AuthorSerializer
 
 class BookViewSet(viewsets.ModelViewSet):
-    queryset = Book.objects.all()
+    queryset = Book.objects.select_related('author')
     serializer_class = BookSerializer
 
     @action(detail=True, methods=['post'])
@@ -44,10 +44,40 @@ class BookViewSet(viewsets.ModelViewSet):
         book.available_copies += 1
         book.save()
         return Response({'status': 'Book returned successfully.'}, status=status.HTTP_200_OK)
+    
+    @action(detail=True, methods=['post'])
+    def extend_due_date(self, request, pk=None):
+        book = self.get_object()
+        member_id = request.data.get('member_id')
+        try:
+            loan = Loan.objects.get(book=book, member__id=member_id, is_returned=False)
+        except Loan.DoesNotExist:
+            return Response({'error': 'Active loan does not exist.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            additional_days = request.data.get('additional_days')
+            if not additional_days:
+                return Response({'additional_days': ['This field is required.']}, status=status.HTTP_400_BAD_REQUEST)
+            
+            additional_days = int(additional_days)
+
+            if additional_days < 1:
+                return Response({'additional_days': ['Value must be greater than 0']}, status=status.HTTP_400_BAD_REQUEST)
+        except ValueError:
+            return Response({'additional_days': ['Value must be a valid integer']}, status=status.HTTP_400_BAD_REQUEST)
+
+        loan.due_date = loan.due_date + timezone.timedelta(days=additional_days)
+        loan.save()
+        return Response({'status': 'Loan extended successfully.'}, status=status.HTTP_200_OK)
 
 class MemberViewSet(viewsets.ModelViewSet):
     queryset = Member.objects.all()
     serializer_class = MemberSerializer
+
+    @action(detail=False, methods=['get'])
+    def top_active(self, request):
+        return Response(status=status.HTTP_200_OK)
+
 
 class LoanViewSet(viewsets.ModelViewSet):
     queryset = Loan.objects.all()
